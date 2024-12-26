@@ -19,14 +19,7 @@ function love.load()
     }
     
     -- Inicjalizacja pustej planszy
-    for y = 1, gridHeight do
-        grid[y] = {}
-        colors[y] = {}
-        for x = 1, gridWidth do
-            grid[y][x] = 0
-            colors[y][x] = {0, 0, 0}
-        end
-    end
+    initializeGrid()
     
     -- Definicje klocków (tetrimino)
     tetrominoes = {
@@ -60,14 +53,27 @@ function love.load()
     currentPiece = nil
     currentX = 4
     currentY = 1
-    
     currentPieceColor = {1, 0, 0}
+    currentPieceIndex = 1
+    score = 0
+    
     spawnNewPiece()
     
     -- Dodaj zmienną dla opóźnienia powtarzania klawiszy
     keyRepeatDelay = 0.15  -- czas w sekundach
     keyTimer = 0
-end 
+end
+
+function initializeGrid()
+    for y = 1, gridHeight do
+        grid[y] = {}
+        colors[y] = {}
+        for x = 1, gridWidth do
+            grid[y][x] = 0
+            colors[y][x] = {0, 0, 0}
+        end
+    end
+end
 
 function love.update(dt)
     -- Dodanie timera dla automatycznego opadania
@@ -85,7 +91,7 @@ function love.update(dt)
     
     -- Aktualizacja timera klawiszy
     keyTimer = keyTimer + dt
-end 
+end
 
 function love.draw()
     -- Przesunięcie planszy na środek ekranu
@@ -114,13 +120,19 @@ function love.draw()
     -- Rysowanie aktualnego klocka
     love.graphics.setColor(currentPieceColor)
     drawPiece(offsetX, offsetY)
-end 
+    
+    -- Rysowanie informacji o sterowaniu
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.print("Sterowanie:", 10, 10)
+    love.graphics.print("Strzałki - poruszanie", 10, 30)
+    love.graphics.print("S - zapisz grę", 10, 50)
+    love.graphics.print("L - wczytaj grę", 10, 70)
+end
 
--- Funkcje pomocnicze
 function spawnNewPiece()
-    local pieceIndex = love.math.random(#tetrominoes)
-    currentPiece = tetrominoes[pieceIndex]
-    currentPieceColor = pieceColors[pieceIndex]
+    currentPieceIndex = love.math.random(#tetrominoes)
+    currentPiece = tetrominoes[currentPieceIndex]
+    currentPieceColor = pieceColors[currentPieceIndex]
     currentX = math.floor(gridWidth / 2) - 1
     currentY = 1
     
@@ -161,6 +173,7 @@ function lockPiece()
 end
 
 function clearLines()
+    local linesCleared = 0
     for y = gridHeight, 1, -1 do
         local complete = true
         for x = 1, gridWidth do
@@ -171,16 +184,46 @@ function clearLines()
         end
         
         if complete then
+            linesCleared = linesCleared + 1
+            -- Przesuń wszystkie wiersze w dół
             for moveY = y, 2, -1 do
                 for x = 1, gridWidth do
                     grid[moveY][x] = grid[moveY-1][x]
+                    colors[moveY][x] = colors[moveY-1][x]
                 end
             end
             -- Wyczyść górny wiersz
             for x = 1, gridWidth do
                 grid[1][x] = 0
+                colors[1][x] = {0, 0, 0}
             end
+            y = y + 1  -- Sprawdź ten sam wiersz ponownie
         end
+    end
+    
+    if linesCleared > 0 then
+        score = score + (linesCleared * 100)  -- Dodaj punkty za wyczyszczone linie
+    end
+end
+
+function rotatePiece()
+    local newPiece = {}
+    local size = #currentPiece
+    
+    -- Stwórz nową tablicę dla obroconego klocka
+    for i = 1, size do
+        newPiece[i] = {}
+        for j = 1, size do
+            newPiece[i][j] = currentPiece[size - j + 1][i]
+        end
+    end
+    
+    -- Sprawdź, czy obrócony klocek nie koliduje z innymi
+    local originalPiece = currentPiece
+    currentPiece = newPiece
+    
+    if not canMove(currentX, currentY) then
+        currentPiece = originalPiece  -- Jeśli koliduje, cofnij obrót
     end
 end
 
@@ -195,9 +238,106 @@ function drawPiece(offsetX, offsetY)
             end
         end
     end
-end 
+end
 
--- Dodaj nową funkcję dla obsługi pojedynczego wciśnięcia klawisza
+function saveGame()
+    local saveData = {
+        grid = grid,
+        colors = colors,
+        currentPiece = currentPiece,
+        currentX = currentX,
+        currentY = currentY,
+        currentPieceColor = currentPieceColor,
+        currentPieceIndex = currentPieceIndex,
+        score = score
+    }
+    
+    local serializedData = serialize(saveData)
+    love.filesystem.write("tetris_save.dat", serializedData)
+end
+
+function loadGame()
+    if love.filesystem.getInfo("tetris_save.dat") then
+        local content = love.filesystem.read("tetris_save.dat")
+        local saveData = deserialize(content)
+        
+        if saveData then
+            -- Przywracanie stanu gry
+            grid = saveData.grid
+            colors = saveData.colors
+            currentPiece = saveData.currentPiece
+            currentX = saveData.currentX
+            currentY = saveData.currentY
+            currentPieceColor = saveData.currentPieceColor
+            currentPieceIndex = saveData.currentPieceIndex
+            score = saveData.score
+            return true
+        end
+    end
+    return false
+end
+
+function serialize(data)
+    local serialized = "return {"
+    
+    -- Zapisz planszę
+    serialized = serialized .. "grid={"
+    for y = 1, #data.grid do
+        serialized = serialized .. "{"
+        for x = 1, #data.grid[y] do
+            serialized = serialized .. data.grid[y][x] .. ","
+        end
+        serialized = serialized .. "},"
+    end
+    serialized = serialized .. "},"
+    
+    -- Zapisz kolory
+    serialized = serialized .. "colors={"
+    for y = 1, #data.colors do
+        serialized = serialized .. "{"
+        for x = 1, #data.colors[y] do
+            serialized = serialized .. "{"
+            for i = 1, 3 do
+                serialized = serialized .. data.colors[y][x][i] .. ","
+            end
+            serialized = serialized .. "},"
+        end
+        serialized = serialized .. "},"
+    end
+    serialized = serialized .. "},"
+    
+    -- Zapisz aktualny klocek
+    serialized = serialized .. "currentPiece={"
+    for y = 1, #data.currentPiece do
+        serialized = serialized .. "{"
+        for x = 1, #data.currentPiece[y] do
+            serialized = serialized .. data.currentPiece[y][x] .. ","
+        end
+        serialized = serialized .. "},"
+    end
+    serialized = serialized .. "},"
+    
+    -- Zapisz pozostałe dane
+    serialized = serialized .. string.format(
+        "currentX=%d,currentY=%d,currentPieceColor={%f,%f,%f},currentPieceIndex=%d,score=%d",
+        data.currentX, data.currentY,
+        data.currentPieceColor[1], data.currentPieceColor[2], data.currentPieceColor[3],
+        data.currentPieceIndex,
+        data.score or 0
+    )
+    
+    serialized = serialized .. "}"
+    return serialized
+end
+
+function deserialize(str)
+    local chunk = load(str)
+    if chunk then
+        return chunk()
+    end
+    return nil
+end
+
 function love.keypressed(key)
     if keyTimer < keyRepeatDelay then
         return
@@ -218,5 +358,9 @@ function love.keypressed(key)
         end
     elseif key == 'up' then
         rotatePiece()
+    elseif key == 's' then
+        saveGame()
+    elseif key == 'l' then
+        loadGame()
     end
-end 
+end
