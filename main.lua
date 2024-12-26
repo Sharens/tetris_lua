@@ -57,6 +57,9 @@ function love.load()
     currentPieceIndex = 1
     score = 0
     
+    -- Załaduj efekt dźwiękowy
+    clickSound = love.audio.newSource("src/sfx/click.mp3", "static")
+    
     spawnNewPiece()
     
     -- Dodaj zmienną dla opóźnienia powtarzania klawiszy
@@ -170,6 +173,9 @@ function lockPiece()
             end
         end
     end
+    
+    -- Odtwórz dźwięk lądowania
+    clickSound:play()
 end
 
 function clearLines()
