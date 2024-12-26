@@ -65,6 +65,14 @@ function love.load()
     -- Dodaj zmienną dla opóźnienia powtarzania klawiszy
     keyRepeatDelay = 0.15  -- czas w sekundach
     keyTimer = 0
+    
+    -- Dodaj zmienne dla animacji
+    lineClearAnimation = {
+        active = false,
+        lines = {},
+        timer = 0,
+        duration = 0.5 -- Czas trwania animacji w sekundach
+    }
 end
 
 function initializeGrid()
@@ -79,6 +87,36 @@ function initializeGrid()
 end
 
 function love.update(dt)
+    if lineClearAnimation.active then
+        lineClearAnimation.timer = lineClearAnimation.timer + dt
+        
+        if lineClearAnimation.timer >= lineClearAnimation.duration then
+            -- Zakończ animację i wyczyść linie
+            lineClearAnimation.active = false
+            
+            -- Usuń linie i przesuń klocki w dół
+            local linesCleared = #lineClearAnimation.lines
+            for _, lineY in ipairs(lineClearAnimation.lines) do
+                -- Przesuń wszystkie wiersze w dół
+                for moveY = lineY, 2, -1 do
+                    for x = 1, gridWidth do
+                        grid[moveY][x] = grid[moveY-1][x]
+                        colors[moveY][x] = colors[moveY-1][x]
+                    end
+                end
+                -- Wyczyść górny wiersz
+                for x = 1, gridWidth do
+                    grid[1][x] = 0
+                    colors[1][x] = {0, 0, 0}
+                end
+            end
+            
+            score = score + (linesCleared * 100)
+            spawnNewPiece()
+        end
+        return -- Nie wykonuj normalnej aktualizacji podczas animacji
+    end
+
     -- Dodanie timera dla automatycznego opadania
     dropTimer = dropTimer + dt
     if dropTimer >= dropInterval then
@@ -87,8 +125,6 @@ function love.update(dt)
             currentY = currentY + 1
         else
             lockPiece()
-            clearLines()
-            spawnNewPiece()
         end
     end
     
@@ -105,7 +141,29 @@ function love.draw()
     for y = 1, gridHeight do
         for x = 1, gridWidth do
             if grid[y][x] == 1 then
-                love.graphics.setColor(colors[y][x])
+                -- Sprawdź czy linia jest w trakcie animacji
+                local isAnimatedLine = false
+                if lineClearAnimation.active then
+                    for _, lineY in ipairs(lineClearAnimation.lines) do
+                        if y == lineY then
+                            isAnimatedLine = true
+                            break
+                        end
+                    end
+                end
+                
+                if isAnimatedLine then
+                    -- Efekt migania dla linii w trakcie usuwania
+                    local flash = math.sin(lineClearAnimation.timer * 15) > 0
+                    if flash then
+                        love.graphics.setColor(1, 1, 1) -- Biały błysk
+                    else
+                        love.graphics.setColor(colors[y][x])
+                    end
+                else
+                    love.graphics.setColor(colors[y][x])
+                end
+                
                 love.graphics.rectangle('fill', 
                     offsetX + (x-1)*blockSize, 
                     offsetY + (y-1)*blockSize, 
@@ -174,12 +232,17 @@ function lockPiece()
         end
     end
     
-    -- Odtwórz dźwięk lądowania
     clickSound:play()
+    
+    -- Sprawdź czy są linie do wyczyszczenia
+    if not clearLines() then
+        -- Jeśli nie ma linii do wyczyszczenia, od razu spawnuj nowy klocek
+        spawnNewPiece()
+    end
 end
 
 function clearLines()
-    local linesCleared = 0
+    local linesToClear = {}
     for y = gridHeight, 1, -1 do
         local complete = true
         for x = 1, gridWidth do
@@ -190,26 +253,18 @@ function clearLines()
         end
         
         if complete then
-            linesCleared = linesCleared + 1
-            -- Przesuń wszystkie wiersze w dół
-            for moveY = y, 2, -1 do
-                for x = 1, gridWidth do
-                    grid[moveY][x] = grid[moveY-1][x]
-                    colors[moveY][x] = colors[moveY-1][x]
-                end
-            end
-            -- Wyczyść górny wiersz
-            for x = 1, gridWidth do
-                grid[1][x] = 0
-                colors[1][x] = {0, 0, 0}
-            end
-            y = y + 1  -- Sprawdź ten sam wiersz ponownie
+            table.insert(linesToClear, y)
         end
     end
     
-    if linesCleared > 0 then
-        score = score + (linesCleared * 100)  -- Dodaj punkty za wyczyszczone linie
+    if #linesToClear > 0 then
+        -- Rozpocznij animację
+        lineClearAnimation.active = true
+        lineClearAnimation.lines = linesToClear
+        lineClearAnimation.timer = 0
+        return true -- Zwróć true jeśli są linie do wyczyszczenia
     end
+    return false
 end
 
 function rotatePiece()
